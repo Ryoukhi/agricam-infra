@@ -9,7 +9,7 @@ on:
 
 env:
   TF_VERSION: 1.5.7
-  AWS_REGION: eu-nord-1              # ou eu-north-1 selon votre bootstrap
+  AWS_REGION: eu-north-1              # ou eu-north-1 selon votre bootstrap
   TF_STATE_BUCKET: agricam-tfstate-1234567890
   TF_LOCK_TABLE: terraform-locks
   WORKING_DIR_DEV: environnements/dev
