@@ -116,7 +116,7 @@ resource "aws_security_group" "agricam_sg" {
 
 resource "aws_key_pair" "agricam_keypair" {
   key_name   = "agricam-keypair-${var.environnement}"
-  public_key = file("~/.ssh/agricam_key.pub")
+  public_key = var.ssh_public_key # au lieu de file(...)
 }
 
 # Instance EC2 (serveur virtuel)
@@ -163,3 +163,4 @@ resource "aws_s3_bucket_public_access_block" "agricam_s3_pab" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
