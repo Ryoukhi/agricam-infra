@@ -1,0 +1,230 @@
+name: Terraform CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # déclenchement manuel depuis l'interface GitHub
+
+env:
+  TF_VERSION: 1.5.7
+  AWS_REGION: eu-north-1
+  TF_STATE_BUCKET: agricam-tfstate-1234567890
+  TF_LOCK_TABLE: terraform-locks
+  # Environnement par défaut pour les tests
+  WORKING_DIR_DEV: environnements/dev
+
+jobs:
+  # ---------- NIVEAU 1 : Linting (fmt, tflint, tfsec) ----------
+  linting:
+    name: Niveau 1 - Linting (fmt, tflint, tfsec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+        continue-on-error: false
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v3
+        with:
+          tflint_version: v0.48.0
+
+      - name: Run TFLint sur dev
+        run: tflint --chdir=${{ env.WORKING_DIR_DEV }}
+
+      - name: Run tfsec (sécurité statique)
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: ${{ env.WORKING_DIR_DEV }}
+
+  # ---------- NIVEAU 2 : Tests unitaires (validation, plan, terratest optionnel) ----------
+  unit-tests:
+    name: Niveau 2 - Tests unitaires (validate, plan)
+    runs-on: ubuntu-latest
+    needs: [linting]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init (backend partiel avec config distante)
+        run: |
+          cd ${{ env.WORKING_DIR_DEV }}
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/dev/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Validate
+        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} validate
+
+      - name: Terraform Plan (dry-run)
+        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} plan -var-file=terraform.tfvars -input=false -no-color
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # ---------- NIVEAU 3 : Tests d'intégration (apply réel sur dev) ----------
+  integration-tests:
+    name: Niveau 3 - Tests d'intégration (apply sur dev)
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    environment: dev  # utilise l'environnement GitHub "dev"
+    concurrency: ci-dev  # empêche les conflits sur l'état
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init
+        run: |
+          cd ${{ env.WORKING_DIR_DEV }}
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/dev/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Apply (auto-approve sur dev)
+        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} apply -var-file=terraform.tfvars -auto-approve -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      # Optionnel : exécuter des tests post-déploiement (ex: curl sur l'instance)
+      - name: Post-deployment smoke test
+        run: |
+          echo "Ajoutez ici des vérifications sur l'infrastructure déployée (ex: HTTP 200, etc.)"
+
+  # ---------- NIVEAU 4 : Conformité et sécurité (Checkov, Terrascan) ----------
+  compliance:
+    name: Niveau 4 - Conformité & Security Policies
+    runs-on: ubuntu-latest
+    needs: [integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Checkov (analyse de conformité)
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ${{ env.WORKING_DIR_DEV }}
+          framework: terraform
+          quiet: false
+          soft_fail: false   # échoue si des violations critiques existent
+          output_format: cli
+          download_external_modules: true
+
+      - name: Run Terrascan (règles de sécurité)
+        uses: tenable/terrascan-action@main
+        with:
+          iac_type: 'terraform'
+          iac_version: 'v14'
+          policy_type: 'aws'
+          only_warn: false
+          non_recursive: false
+          verbose: true
+          directory: ${{ env.WORKING_DIR_DEV }}
+
+  # ---------- Déploiement conditionnel sur staging (si branche main) ----------
+  deploy-staging:
+    name: Déploiement sur Staging
+    runs-on: ubuntu-latest
+    needs: [compliance]
+    if: github.ref == 'refs/heads/main'
+    environment: staging
+    concurrency: ci-staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init staging
+        run: |
+          cd environnements/staging
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/staging/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Apply staging
+        run: |
+          cd environnements/staging
+          terraform apply -var-file=terraform.tfvars -auto-approve -input=false
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  # ---------- Déploiement sur production (manuel via approval GitHub) ----------
+  deploy-prod:
+    name: Déploiement sur Production
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    environment: 
+      name: prod
+      # Nécessite une approbation manuelle (configurable dans les paramètres de l'environnement GitHub)
+    concurrency: ci-prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init prod
+        run: |
+          cd environnements/prod
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/prod/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Plan prod (output pour review)
+        run: |
+          cd environnements/prod
+          terraform plan -var-file=terraform.tfvars -out=tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Apply prod
+        run: |
+          cd environnements/prod
+          terraform apply tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
