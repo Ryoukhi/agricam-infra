@@ -146,7 +146,7 @@ resource "aws_instance" "agricam_serveur" {
 
 # Bucket S3 (stockage)
 resource "aws_s3_bucket" "agricam_stockage" {
-  bucket = "agricam-${var.environnement}-stockage-camtech-2026"
+  bucket = "agricam-${var.environnement}-stockage-camtech-69019"
 
   tags = {
     Name          = "agricam-stockage-${var.environnement}"
