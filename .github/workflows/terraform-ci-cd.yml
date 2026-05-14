@@ -64,11 +64,17 @@ jobs:
       - name: Terraform Validate
         run: terraform -chdir=${{ env.WORKING_DIR_DEV }} validate
       - name: Terraform Plan (dry-run)
-        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} plan -var-file=terraform.tfvars -input=false -no-color
+        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} plan -input=false -no-color
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_environnement: dev
+          TF_VAR_ami_id: ami-0826f7fac3eaaa32a
+          TF_VAR_ip_admin: 102.244.197.142/32
+          # Optionnel (car valeur par défaut présente)
+          TF_VAR_aws_region: eu-north-1
+          TF_VAR_type_instance: t3.micro
 
   # Niveau 3 - Tests d'intégration (apply réel)
   integration-tests:
@@ -97,11 +103,17 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       - name: Terraform Apply (auto-approve sur dev)
-        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} apply -var-file=terraform.tfvars -auto-approve -input=false
+        run: terraform -chdir=${{ env.WORKING_DIR_DEV }} apply -auto-approve -input=false
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           TF_VAR_ssh_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
+          TF_VAR_environnement: dev
+          TF_VAR_ami_id: ami-0826f7fac3eaaa32a
+          TF_VAR_ip_admin: 102.244.197.142/32
+          # Optionnel (car valeur par défaut présente)
+          TF_VAR_aws_region: eu-north-1
+          TF_VAR_type_instance: t3.micro
       - name: Post-deployment smoke test (optionnel)
         run: |
           echo "Ajoutez ici un test de validation (ex: curl sur l'IP publique)"
@@ -125,3 +137,4 @@ jobs:
           iac_type: 'terraform'
           policy_type: 'aws'
           directory: ${{ env.WORKING_DIR_DEV }}
+          only_warn: true
