@@ -1,0 +1,35 @@
+# ==========================================
+# Terraform : Fichiers et dossiers locaux
+# ==========================================
+
+# Ignorer le dossier de build/cache de Terraform (partout dans le projet)
+.terraform/
+
+# Ignorer le fichier de verrouillage des versions des providers
+.terraform.lock.hcl
+
+# Ignorer les fichiers d'état locaux (gérés via votre backend S3)
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+
+# Ignorer les fichiers de configuration de backend locaux
+backend.hcl
+**/backend.hcl
+
+# ==========================================
+# Variables et Secrets
+# ==========================================
+
+# Ignorer toutes les variables d'environnement contenant des secrets
+*.tfvars
+*.tfvars.json
+
+# Autoriser explicitement le partage des fichiers d'exemple
+!*.tfvars.example
+
+# ==========================================
+# Logs et Crashs
+# ==========================================
+*.log
+crash.log
