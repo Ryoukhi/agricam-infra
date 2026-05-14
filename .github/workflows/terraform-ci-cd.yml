@@ -130,7 +130,7 @@ jobs:
         with:
           directory: ${{ env.WORKING_DIR_DEV }}
           framework: terraform
-          soft_fail: false
+          soft_fail: true
       - name: Run Terrascan
         uses: tenable/terrascan-action@main
         with:

@@ -110,6 +110,7 @@ resource "aws_security_group" "agricam_sg" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+    description = "Autoriser tout le trafic sortant"
   }
 }
 
@@ -142,6 +143,14 @@ resource "aws_instance" "agricam_serveur" {
     Projet        = "AgriCam"
     Environnement = var.environnement
   }
+
+  root_block_device {
+    encrypted = true
+  }
+
+  metadata_options {
+    http_tokens = "required"
+  }
 }
 
 # Bucket S3 (stockage)
@@ -164,3 +173,10 @@ resource "aws_s3_bucket_public_access_block" "agricam_s3_pab" {
   restrict_public_buckets = true
 }
 
+# Activer le versioning sur le bucket
+resource "aws_s3_bucket_versioning" "agricam_stockage_versioning" {
+  bucket = aws_s3_bucket.agricam_stockage.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
