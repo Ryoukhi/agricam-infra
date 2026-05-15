@@ -173,7 +173,7 @@ jobs:
             -var="ami_id=${{ secrets.PROD_AMI_ID }}" \
             -var="ip_admin=${{ secrets.PROD_IP_ADMIN }}" \
             -var="aws_region=${{ env.AWS_REGION }}" \
-            -var="type_instance=t3.large"
+            -var="type_instance=t3.micro"
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
