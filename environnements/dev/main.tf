@@ -135,7 +135,7 @@ resource "aws_instance" "agricam_serveur" {
         apt install -y nginx
         systemctl start nginx
         systemctl enable nginx
-        echo '<h1>AgriCam - ${var.environnement}</h1>' > /var/www/html/index.html
+        echo '<h1>Bienvenue à AgriCam - ${var.environnement}</h1>' > /var/www/html/index.html
     EOF
 
   tags = {
