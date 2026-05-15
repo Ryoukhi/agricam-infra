@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, dev ]
   workflow_dispatch:
 
 env:
@@ -113,7 +113,7 @@ jobs:
           TF_VAR_type_instance: t3.micro
       - name: Post-deployment smoke test (optionnel)
         run: "echo 'Ajoutez ici un test de validation (ex: curl sur l'IP publique)'"
-        
+
   # ---------- Niveau 4 - Conformité ----------
   compliance:
     name: Niveau 4 - Conformité & Security Policies
