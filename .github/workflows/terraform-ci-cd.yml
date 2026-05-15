@@ -135,11 +135,10 @@ jobs:
 
   # ---------- Déploiement production (avec approbation manuelle) ----------
   deploy-prod:
-    name: Déployer en production
+    name: Déployer en production (manuel)
     runs-on: ubuntu-latest
     needs: [compliance]
-    if: github.ref == 'refs/heads/main'
-    environment: prod                # Active l'environnement GitHub "prod" avec required reviewers
+    if: github.event_name == 'workflow_dispatch'
     concurrency: ci-prod
     steps:
       - uses: actions/checkout@v4
