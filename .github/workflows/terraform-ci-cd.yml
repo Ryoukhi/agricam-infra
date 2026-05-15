@@ -1,21 +1,22 @@
-name: Terraform CI/CD Pipeline (Dev only)
+name: Terraform CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, dev ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
 
 env:
   TF_VERSION: 1.5.7
-  AWS_REGION: eu-north-1              # ou eu-north-1 selon votre bootstrap
+  AWS_REGION: eu-north-1
   TF_STATE_BUCKET: agricam-tfstate-1234567890
   TF_LOCK_TABLE: terraform-locks
   WORKING_DIR_DEV: environnements/dev
+  WORKING_DIR_PROD: environnements/prod
 
 jobs:
-  # Niveau 1 - Linting
+  # ---------- Niveau 1 - Linting ----------
   linting:
     name: Niveau 1 - Linting (fmt, tflint, tfsec)
     runs-on: ubuntu-latest
@@ -38,7 +39,7 @@ jobs:
           working_directory: ${{ env.WORKING_DIR_DEV }}
           soft_fail: true
 
-  # Niveau 2 - Tests unitaires
+  # ---------- Niveau 2 - Tests unitaires ----------
   unit-tests:
     name: Niveau 2 - Tests unitaires (validate, plan)
     runs-on: ubuntu-latest
@@ -72,17 +73,14 @@ jobs:
           TF_VAR_environnement: dev
           TF_VAR_ami_id: ami-0826f7fac3eaaa32a
           TF_VAR_ip_admin: 102.244.197.142/32
-          # Optionnel (car valeur par défaut présente)
           TF_VAR_aws_region: eu-north-1
           TF_VAR_type_instance: t3.micro
 
-  # Niveau 3 - Tests d'intégration (apply réel)
+  # ---------- Niveau 3 - Tests d'intégration (apply réel sur dev, auto-approve) ----------
   integration-tests:
     name: Niveau 3 - Tests d'intégration (apply sur dev)
     runs-on: ubuntu-latest
     needs: [unit-tests]
-    # Pas besoin d'environnement GitHub si vous n'utilisez pas les approvals
-    # environment: dev   # facultatif, vous pouvez commenter
     concurrency: ci-dev
     steps:
       - uses: actions/checkout@v4
@@ -111,14 +109,10 @@ jobs:
           TF_VAR_environnement: dev
           TF_VAR_ami_id: ami-0826f7fac3eaaa32a
           TF_VAR_ip_admin: 102.244.197.142/32
-          # Optionnel (car valeur par défaut présente)
           TF_VAR_aws_region: eu-north-1
           TF_VAR_type_instance: t3.micro
-      - name: Post-deployment smoke test (optionnel)
-        run: |
-          echo "Ajoutez ici un test de validation (ex: curl sur l'IP publique)"
-
-  # Niveau 4 - Conformité
+        
+  # ---------- Niveau 4 - Conformité ----------
   compliance:
     name: Niveau 4 - Conformité & Security Policies
     runs-on: ubuntu-latest
@@ -138,3 +132,62 @@ jobs:
           policy_type: 'aws'
           directory: ${{ env.WORKING_DIR_DEV }}
           only_warn: true
+
+  # ---------- Déploiement production (avec approbation manuelle) ----------
+  deploy-prod:
+    name: Déployer en production
+    runs-on: ubuntu-latest
+    needs: [compliance]
+    if: github.ref == 'refs/heads/main'
+    environment: prod                # Active l'environnement GitHub "prod" avec required reviewers
+    concurrency: ci-prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init (prod)
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/prod/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Plan (prod)
+        id: plan
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform plan \
+            -input=false \
+            -out=tfplan \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -var="environnement=prod" \
+            -var="ami_id=${{ secrets.PROD_AMI_ID }}" \
+            -var="ip_admin=${{ secrets.PROD_IP_ADMIN }}" \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="type_instance=t3.large"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload plan artifact (pour relecture)
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-prod
+          path: ${{ env.WORKING_DIR_PROD }}/tfplan
+
+      - name: Terraform Apply (prod)
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform apply -input=false tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
