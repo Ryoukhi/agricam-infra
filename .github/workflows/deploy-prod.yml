@@ -1,0 +1,58 @@
+name: Deploy to Production (Manual)
+
+on:
+  workflow_dispatch:
+
+env:
+  TF_VERSION: 1.5.7
+  AWS_REGION: eu-north-1
+  TF_STATE_BUCKET: agricam-tfstate-1234567890
+  TF_LOCK_TABLE: terraform-locks
+  WORKING_DIR_PROD: environnements/prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Terraform Init (prod)
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform init \
+            -backend-config="bucket=${{ env.TF_STATE_BUCKET }}" \
+            -backend-config="key=environnements/prod/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Plan (prod)
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform plan \
+            -input=false \
+            -out=tfplan \
+            -var="ssh_public_key=${{ secrets.SSH_PUBLIC_KEY }}" \
+            -var="environnement=prod" \
+            -var="ami_id=${{ secrets.PROD_AMI_ID }}" \
+            -var="ip_admin=${{ secrets.PROD_IP_ADMIN }}" \
+            -var="aws_region=${{ env.AWS_REGION }}" \
+            -var="type_instance=t3.micro"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Apply (prod)
+        run: |
+          cd ${{ env.WORKING_DIR_PROD }}
+          terraform apply -input=false tfplan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
