@@ -1,2 +1,2 @@
 # agricam-infra
-test ci/cd
+test ci/cd terraform
